@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- #bbinclude "head-meta.html" -->
+<!-- end bbinclude -->
+	<title>{{title}} | Blog | Croc Studios</title>
+	<meta name="description" content="{{meta.description}}" />
+	<meta name="keywords" content="{{meta.keywords}}" />
+	<meta name="canonical" content="{{meta.canonical}}" />
+
+	<script type="application/ld+json">
+		{{{jsonLdSchema}}}
+	</script>
+<!-- #bbinclude "head-post-scripts.html" -->
+<!-- end bbinclude -->
+<link rel="stylesheet" href="/posts/styles.css" />
+</head>
+<body>
+<!-- #bbinclude "header.html"
+	#HEADER_TITLE# = "Croc Studios"
+	-->
+<!-- end bbinclude -->
+<main>
+
+	<div class="container">
+		
+		<article>
+
+			<h1>{{title}}</h1>
+			<time datetime="{{date.iso}}" class="publish-date">{{date.display}}</time>
+			<div class="prose">
+				{{{content}}}
+			</div>
+
+		</article>
+
+	</div>
+
+</main>
+<!-- #bbinclude "footer.html" -->
+<!-- end bbinclude -->
+
+<script src="/js/app.js" type="text/javascript"></script>
+</body>
+</html>

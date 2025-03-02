@@ -1,0 +1,20 @@
+[site]
+
+[site.info]
+    base_url = "https://example.com"
+    site_name = "My Awesome Site"
+    author = "John Doe"
+    site_logo = "/assets/logo.png"
+        
+[site.build]
+    content_dir = "content"
+    public_dir = "public"
+    partials_dir = "includes/partials"
+    templates_dir = "includes/templates"
+
+[site.frontmatter.aliases]
+    title = ["name", "heading"]
+    date = ["published", "created_at", "publishDate"]
+    description = ["desc", "summary"]
+    author = ["writer", "creator"]
+    

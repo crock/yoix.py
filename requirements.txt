@@ -1,0 +1,7 @@
+python-frontmatter
+click
+mistune
+python-slugify
+tomli
+yoix-pi
+pybars3
