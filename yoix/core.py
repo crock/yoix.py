@@ -64,30 +64,11 @@ class SiteBuilder:
         self.post_schemas = []
         
         self._validate_directories()
-        self._create_default_templates()
         
     def _validate_directories(self):
         """Create required directories if they don't exist."""
         for directory in [self.content_dir, self.public_dir, self.templates_dir, self.partials_dir]:
             directory.mkdir(parents=True, exist_ok=True)
-            
-    def _create_default_templates(self):
-        """Create default templates if they don't exist."""
-        post_template = self.templates_dir / 'post.hbs'
-        blog_index_template = self.templates_dir / 'blog-index.hbs'
-        index_template = self.templates_dir / 'default.hbs'
-        
-        if not post_template.exists():
-            with open(f"{os.path.dirname(__file__)}/template/templates/post.hbs", "r") as f:
-                post_template.write_text(f.read())
-        
-        if not blog_index_template.exists():
-            with open(f"{os.path.dirname(__file__)}/template/templates/blog-index.hbs", "r") as f:
-                blog_index_template.write_text(f.read())
-        
-        if not index_template.exists():
-            with open(f"{os.path.dirname(__file__)}/template/templates/default.hbs", "r") as f:
-                index_template.write_text(f.read())
             
     def _copy_images(self, page_data, input_dir):
         """Copy images from content directory to public directory.
@@ -160,10 +141,8 @@ class SiteBuilder:
             
         # Process all markdown files recursively
         for md_file in input_dir.rglob("*.md"):
-            # Skip non-index files in directories that have an index.md
-            if md_file.name != 'index.md' and (md_file.parent / 'index.md').exists():
-                continue
-                
+            # Process all markdown files - no longer skip non-index files
+            
             # Try to process as a blog post first
             if post_data := self.post_processor.process_post(md_file, input_dir):
                 # Handle blog post
@@ -188,8 +167,25 @@ class SiteBuilder:
                 # Copy any images used in the page
                 self._copy_images(page_data, input_dir)
                 
+                # Determine the URL path based on the file name
+                try:
+                    relative_parent = md_file.parent.relative_to(input_dir)
+                except ValueError:
+                    # File is in the root directory
+                    relative_parent = Path('')
+                
+                if md_file.name == 'index.md':
+                    # For index.md, use the parent directory path
+                    url_path = relative_parent
+                else:
+                    # For non-index.md files, create a directory with the file's stem name
+                    url_path = relative_parent / md_file.stem
+                
+                # Update the page data with the new URL path
+                page_data['url_path'] = url_path
+                
                 # Write the page
-                page_path = self.public_dir / page_data['url_path']
+                page_path = self.public_dir / url_path
                 self.write_page(page_path, page_data)
             
         # Sort posts by date
