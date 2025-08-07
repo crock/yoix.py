@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="yoix",
-    version="0.1.1",
+    version="0.2.0",
     author="Alex Crocker",
     description="Pythonic static site generator designed for minimalists",
     long_description=long_description,

@@ -7,6 +7,7 @@ from .config import ConfigManager
 from .template import TemplateManager
 from .post import PostProcessor, PageProcessor
 from .asset import AssetManager
+from .pm import PluginManager
 
 from yoix_pi.processor import process_persistent_includes
 
@@ -59,16 +60,31 @@ class SiteBuilder:
         )
         self.asset_manager = AssetManager(self.public_dir, self.content_dir)
         
+        # Initialize plugin manager
+        plugins_dir = self.content_dir.parent / 'plugins'
+        self.plugin_manager = PluginManager(plugins_dir)
+        
         self.posts = []
         self.pages = []
         self.post_schemas = []
         
         self._validate_directories()
+        self._load_plugins()
         
     def _validate_directories(self):
         """Create required directories if they don't exist."""
         for directory in [self.content_dir, self.public_dir, self.templates_dir, self.partials_dir]:
             directory.mkdir(parents=True, exist_ok=True)
+            
+    def _load_plugins(self):
+        """Load and activate all plugins."""
+        loaded_count = self.plugin_manager.load_all_plugins()
+        if loaded_count > 0:
+            print(f"Loaded {loaded_count} plugin(s)")
+            
+            # Activate all loaded plugins by default
+            for plugin_name in self.plugin_manager.loaded_plugins:
+                self.plugin_manager.activate_plugin(plugin_name)
             
     def _copy_images(self, page_data, input_dir):
         """Copy images from content directory to public directory.
@@ -139,12 +155,18 @@ class SiteBuilder:
         if not input_dir.exists():
             raise ValueError(f"Input directory {input_dir} does not exist")
             
+        # Call plugin hook: site build start
+        self.plugin_manager.call_hook('on_site_build_start', self)
+            
         # Process all markdown files recursively
         for md_file in input_dir.rglob("*.md"):
             # Process all markdown files - no longer skip non-index files
             
             # Try to process as a blog post first
             if post_data := self.post_processor.process_post(md_file, input_dir):
+                # Call plugin hook: post process
+                post_data = self.plugin_manager.call_hook('on_post_process', post_data, self) or post_data
+                
                 # Handle blog post
                 self.posts.append(post_data)
                 
@@ -161,6 +183,9 @@ class SiteBuilder:
             
             # If not a blog post, try to process as a regular page
             elif page_data := self.page_processor.process_page(md_file, input_dir):
+                # Call plugin hook: page process
+                page_data = self.plugin_manager.call_hook('on_page_process', page_data, self) or page_data
+                
                 # Handle regular page
                 self.pages.append(page_data)
                 
@@ -185,7 +210,7 @@ class SiteBuilder:
                 page_data['url_path'] = url_path
                 
                 # Write the page
-                page_path = self.public_dir / url_path
+                page_path = self.public_dir / url_path / 'index.html'
                 self.write_page(page_path, page_data)
             
         # Sort posts by date
@@ -213,3 +238,6 @@ class SiteBuilder:
             'partials_dir': self.partials_dir,
             'public_dir': self.public_dir
         })
+
+        # Call plugin hook: site build end
+        self.plugin_manager.call_hook('on_site_build_end', self)
