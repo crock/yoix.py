@@ -198,6 +198,13 @@ class PostProcessor(BaseProcessor):
             # Generate schema
             post_data['jsonLdSchema'] = self.generate_schema(post_data)
             
+            # Pass through all other frontmatter fields for plugins
+            # (Skip the ones already processed)
+            processed_keys = {'title', 'date', 'author', 'layout', 'description', 'keywords'}
+            for key, value in metadata.items():
+                if key not in processed_keys:
+                    post_data[key] = value
+            
             return post_data
             
         except ValueError:
@@ -309,6 +316,13 @@ class PageProcessor(BaseProcessor):
             # Add optional author if specified
             if author := self._resolve_alias(metadata, 'author'):
                 page_data['author'] = author
+            
+            # Pass through all other frontmatter fields for plugins
+            # (Skip the ones already processed)
+            processed_keys = {'title', 'layout', 'description', 'keywords', 'date', 'author'}
+            for key, value in metadata.items():
+                if key not in processed_keys:
+                    page_data[key] = value
             
             return page_data
             

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from .security import load_plugin_securely, SecurityError
+from .api import PluginApi
 
 
 class YoixPlugin:
@@ -20,6 +21,7 @@ class YoixPlugin:
         self.developer = developer
         self.is_active = False
         self.plugin_dir = None
+        self.api = None  # Will be set by PluginManager
         
     def activate(self):
         """Activate the plugin."""
@@ -44,49 +46,85 @@ class YoixPlugin:
     def on_page_process(self, page_data, site_builder):
         """Called when processing a page."""
         return page_data
+        
+    def log(self, level: str, message: str) -> None:
+        """Safe logging mechanism for plugins.
+        
+        Args:
+            level: Log level (info, warning, error, debug)
+            message: Log message
+        """
+        valid_levels = {'info', 'warning', 'error', 'debug'}
+        if level not in valid_levels:
+            level = 'info'
+            
+        prefix = f"[{self.name}]"
+        print(f"{prefix} {level.upper()}: {message}")
 
 
 class PluginManager:
     """Manages Yoix plugins loaded from .yoixplugin archives."""
     
-    def __init__(self, plugins_dir: Path):
+    def __init__(self, plugins_dir: Path, site_builder=None):
         """Initialize the plugin manager.
         
         Args:
             plugins_dir: Directory containing .yoixplugin files
+            site_builder: SiteBuilder instance for PluginApi
         """
         self.plugins_dir = Path(plugins_dir)
         self.loaded_plugins: Dict[str, YoixPlugin] = {}
         self.temp_dirs: List[str] = []
+        self.site_builder = site_builder
         
     def discover_plugins(self) -> List[Path]:
-        """Discover all .yoixplugin files in the plugins directory.
+        """Discover all .yoixplugin files and plugin directories in the plugins directory.
         
         Returns:
-            List of paths to .yoixplugin files
+            List of paths to .yoixplugin files and plugin directories
         """
         if not self.plugins_dir.exists():
             return []
-            
-        return list(self.plugins_dir.glob("*.yoixplugin"))
+        
+        plugins = []
+        
+        # Find .yoixplugin zip files
+        plugins.extend(self.plugins_dir.glob("*.yoixplugin"))
+        
+        # Find plugin directories (must contain info.json and main.py)
+        for item in self.plugins_dir.iterdir():
+            if item.is_dir() and (item / 'info.json').exists() and (item / 'main.py').exists():
+                plugins.append(item)
+                
+        return plugins
         
     def load_plugin_info(self, plugin_path: Path) -> Optional[Dict[str, Any]]:
-        """Load plugin info from a .yoixplugin file.
+        """Load plugin info from a .yoixplugin file or directory.
         
         Args:
-            plugin_path: Path to the .yoixplugin file
+            plugin_path: Path to the .yoixplugin file or plugin directory
             
         Returns:
             Plugin info dictionary or None if invalid
         """
         try:
-            with zipfile.ZipFile(plugin_path, 'r') as zip_file:
-                if 'info.json' not in zip_file.namelist():
+            if plugin_path.is_dir():
+                # Load from directory
+                info_file = plugin_path / 'info.json'
+                if not info_file.exists():
                     print(f"Warning: {plugin_path.name} missing info.json")
                     return None
-                    
-                with zip_file.open('info.json') as info_file:
-                    return json.loads(info_file.read().decode('utf-8'))
+                with open(info_file, 'r', encoding='utf-8') as f:
+                    return json.loads(f.read())
+            else:
+                # Load from zip file
+                with zipfile.ZipFile(plugin_path, 'r') as zip_file:
+                    if 'info.json' not in zip_file.namelist():
+                        print(f"Warning: {plugin_path.name} missing info.json")
+                        return None
+                        
+                    with zip_file.open('info.json') as info_file:
+                        return json.loads(info_file.read().decode('utf-8'))
                     
         except (zipfile.BadZipFile, json.JSONDecodeError, KeyError) as e:
             print(f"Error loading plugin {plugin_path.name}: {e}")
@@ -168,10 +206,13 @@ class PluginManager:
             print(f"Plugin {plugin_name} already loaded")
             return True
             
-        # Extract plugin files
-        plugin_dir = self.extract_plugin(plugin_path)
-        if not plugin_dir:
-            return False
+        # Get plugin directory (extract if zip, use directly if directory)
+        if plugin_path.is_dir():
+            plugin_dir = plugin_path
+        else:
+            plugin_dir = self.extract_plugin(plugin_path)
+            if not plugin_dir:
+                return False
             
         # Load plugin module
         plugin_module = self.load_plugin_module(plugin_dir, plugin_name)
@@ -193,6 +234,10 @@ class PluginManager:
                 developer=plugin_info.get('developer', '')
             )
             plugin_instance.plugin_dir = plugin_dir
+            
+            # Create PluginApi if site_builder is available
+            if self.site_builder:
+                plugin_instance.api = PluginApi(self.site_builder, plugin_instance, plugin_dir)
             
             self.loaded_plugins[plugin_name] = plugin_instance
             print(f"Loaded plugin: {plugin_name} v{plugin_instance.version}")

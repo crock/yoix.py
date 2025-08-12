@@ -1,6 +1,7 @@
 """Core functionality for building websites from markdown files."""
 
 import os
+import time
 from pathlib import Path
 
 from .config import ConfigManager
@@ -8,6 +9,7 @@ from .template import TemplateManager
 from .post import PostProcessor, PageProcessor
 from .asset import AssetManager
 from .pm import PluginManager
+from .db import DatabaseManager
 
 from yoix_pi.processor import process_persistent_includes
 
@@ -60,16 +62,22 @@ class SiteBuilder:
         )
         self.asset_manager = AssetManager(self.public_dir, self.content_dir)
         
+        # Initialize database manager
+        self.db_manager = DatabaseManager()
+        
         # Initialize plugin manager
         plugins_dir = self.content_dir.parent / 'plugins'
-        self.plugin_manager = PluginManager(plugins_dir)
+        self.plugin_manager = PluginManager(plugins_dir, site_builder=self)
         
         self.posts = []
         self.pages = []
         self.post_schemas = []
+        self.build_hash = None
+        self.datasets = {}
         
         self._validate_directories()
         self._load_plugins()
+        self._load_datasets()
         
     def _validate_directories(self):
         """Create required directories if they don't exist."""
@@ -85,6 +93,32 @@ class SiteBuilder:
             # Activate all loaded plugins by default
             for plugin_name in self.plugin_manager.loaded_plugins:
                 self.plugin_manager.activate_plugin(plugin_name)
+                
+    def _load_datasets(self):
+        """Load imported datasets from database for use in templates."""
+        try:
+            # Get all dataset keys from the 'import' category
+            dataset_keys = self.db_manager.cache_list_by_category('import')
+            
+            # Load each dataset that starts with 'dataset:'
+            for key in dataset_keys:
+                if key.startswith('dataset:'):
+                    dataset_name = key[8:]  # Remove 'dataset:' prefix
+                    dataset = self.db_manager.cache_get(key)
+                    if dataset:
+                        self.datasets[dataset_name] = dataset
+                        
+            if self.datasets:
+                print(f"Loaded {len(self.datasets)} dataset(s): {', '.join(self.datasets.keys())}")
+                # Debug: Show first dataset details
+                for name, dataset in self.datasets.items():
+                    print(f"  Dataset '{name}': {len(dataset.get('rows', []))} rows, mapping: {dataset.get('mapping', {})}")
+            else:
+                print("No datasets loaded")
+                    
+        except Exception as e:
+            # Don't fail the build if datasets can't be loaded
+            print(f"Warning: Could not load datasets: {e}")
             
     def _copy_images(self, page_data, input_dir):
         """Copy images from content directory to public directory.
@@ -106,6 +140,11 @@ class SiteBuilder:
         Returns:
             str: Rendered HTML
         """
+        # Add datasets to template variables
+        if self.datasets:
+            variables = variables.copy()
+            variables['datasets'] = self.datasets
+        
         # Use specified layout or default to 'default'
         layout = variables.get('layout', 'default')
         return self.template_manager.render(layout, variables)
@@ -119,6 +158,11 @@ class SiteBuilder:
         Returns:
             str: Rendered HTML
         """
+        # Add datasets to template variables
+        if self.datasets:
+            index_data = index_data.copy()
+            index_data['datasets'] = self.datasets
+            
         return self.template_manager.render('blog-index', index_data)
 
     def write_page(self, path, variables):
@@ -154,90 +198,118 @@ class SiteBuilder:
         input_dir = Path(input_dir)
         if not input_dir.exists():
             raise ValueError(f"Input directory {input_dir} does not exist")
-            
-        # Call plugin hook: site build start
-        self.plugin_manager.call_hook('on_site_build_start', self)
-            
-        # Process all markdown files recursively
-        for md_file in input_dir.rglob("*.md"):
-            # Process all markdown files - no longer skip non-index files
-            
-            # Try to process as a blog post first
-            if post_data := self.post_processor.process_post(md_file, input_dir):
-                # Call plugin hook: post process
-                post_data = self.plugin_manager.call_hook('on_post_process', post_data, self) or post_data
-                
-                # Handle blog post
-                self.posts.append(post_data)
-                
-                # Copy any images used in the post
-                self._copy_images(post_data, input_dir)
-                
-                # Write individual post page
-                post_path = self.public_dir / post_data['url_path']
-                self.write_page(post_path, post_data)
-                
-                # Add schema for the post
-                if schema := post_data.get('jsonLdSchema'):
-                    self.post_schemas.append(schema)
-            
-            # If not a blog post, try to process as a regular page
-            elif page_data := self.page_processor.process_page(md_file, input_dir):
-                # Call plugin hook: page process
-                page_data = self.plugin_manager.call_hook('on_page_process', page_data, self) or page_data
-                
-                # Handle regular page
-                self.pages.append(page_data)
-                
-                # Copy any images used in the page
-                self._copy_images(page_data, input_dir)
-                
-                # Determine the URL path based on the file name
-                try:
-                    relative_parent = md_file.parent.relative_to(input_dir)
-                except ValueError:
-                    # File is in the root directory
-                    relative_parent = Path('')
-                
-                if md_file.name == 'index.md':
-                    # For index.md, use the parent directory path
-                    url_path = relative_parent
-                else:
-                    # For non-index.md files, create a directory with the file's stem name
-                    url_path = relative_parent / md_file.stem
-                
-                # Update the page data with the new URL path
-                page_data['url_path'] = url_path
-                
-                # Write the page
-                page_path = self.public_dir / url_path / 'index.html'
-                self.write_page(page_path, page_data)
-            
-        # Sort posts by date
-        self.posts.sort(key=lambda x: x['date']['iso'], reverse=True)
         
-        # Write blog index if we have any posts
-        if self.posts:
-            self.write_blog_index({
-                'title': 'Blog',
-                'description': 'Latest blog posts',
-                'url': f"{self.base_url.rstrip('/')}/blog/",
-                'blogPostsSchema': self.post_schemas,
-                'posts': self.posts
+        # Start build tracking
+        build_start_time = time.time()
+        self.build_hash = self.db_manager.start_build(input_dir, self.public_dir)
+        
+        try:
+            # Call plugin hook: site build start
+            self.plugin_manager.call_hook('on_site_build_start', self)
+            
+            # Process all markdown files recursively
+            for md_file in input_dir.rglob("*.md"):
+                # Process all markdown files - no longer skip non-index files
+                
+                # Try to process as a blog post first
+                if post_data := self.post_processor.process_post(md_file, input_dir):
+                    # Call plugin hook: post process
+                    post_data = self.plugin_manager.call_hook('on_post_process', post_data, self) or post_data
+                    
+                    # Handle blog post
+                    self.posts.append(post_data)
+                    
+                    # Copy any images used in the post
+                    self._copy_images(post_data, input_dir)
+                    
+                    # Write individual post page
+                    post_path = self.public_dir / post_data['url_path']
+                    self.write_page(post_path, post_data)
+                    
+                    # Add schema for the post
+                    if schema := post_data.get('jsonLdSchema'):
+                        self.post_schemas.append(schema)
+                
+                # If not a blog post, try to process as a regular page
+                elif page_data := self.page_processor.process_page(md_file, input_dir):
+                    # Call plugin hook: page process
+                    page_data = self.plugin_manager.call_hook('on_page_process', page_data, self) or page_data
+                    
+                    # Handle regular page
+                    self.pages.append(page_data)
+                    
+                    # Copy any images used in the page
+                    self._copy_images(page_data, input_dir)
+                    
+                    # Determine the URL path based on the file name
+                    try:
+                        relative_parent = md_file.parent.relative_to(input_dir)
+                    except ValueError:
+                        # File is in the root directory
+                        relative_parent = Path('')
+                    
+                    if md_file.name == 'index.md':
+                        # For index.md, use the parent directory path
+                        url_path = relative_parent
+                    else:
+                        # For non-index.md files, create a directory with the file's stem name
+                        url_path = relative_parent / md_file.stem
+                    
+                    # Update the page data with the new URL path
+                    page_data['url_path'] = url_path
+                    
+                    # Write the page
+                    page_path = self.public_dir / url_path / 'index.html'
+                    self.write_page(page_path, page_data)
+                
+            # Sort posts by date
+            self.posts.sort(key=lambda x: x['date']['iso'], reverse=True)
+            
+            # Write blog index if we have any posts
+            if self.posts:
+                self.write_blog_index({
+                    'title': 'Blog',
+                    'description': 'Latest blog posts',
+                    'url': f"{self.base_url.rstrip('/')}/blog/",
+                    'blogPostsSchema': self.post_schemas,
+                    'posts': self.posts
+                })
+            
+            # Copy static assets
+            self.asset_manager.copy_static_assets()
+            
+            # Copy theme assets if theme directory exists
+            theme_dir = self.content_dir / 'theme'
+            if theme_dir.exists():
+                self.asset_manager.copy_theme_assets(theme_dir)
+
+            process_persistent_includes({
+                'partials_dir': self.partials_dir,
+                'public_dir': self.public_dir
             })
-        
-        # Copy static assets
-        self.asset_manager.copy_static_assets()
-        
-        # Copy theme assets if theme directory exists
-        theme_dir = self.content_dir / 'theme'
-        if theme_dir.exists():
-            self.asset_manager.copy_theme_assets(theme_dir)
 
-        process_persistent_includes({
-            'partials_dir': self.partials_dir,
-            'public_dir': self.public_dir
-        })
-
-        # Call plugin hook: site build end
-        self.plugin_manager.call_hook('on_site_build_end', self)
+            # Call plugin hook: site build end
+            self.plugin_manager.call_hook('on_site_build_end', self)
+            
+            # Record build metrics
+            build_duration = time.time() - build_start_time
+            self.db_manager.record_metric(self.build_hash, 'build_duration', build_duration, 'seconds', 'performance')
+            self.db_manager.record_metric(self.build_hash, 'posts_processed', len(self.posts), 'count', 'content')
+            self.db_manager.record_metric(self.build_hash, 'pages_processed', len(self.pages), 'count', 'content')
+            
+            # Complete build successfully
+            loaded_plugins = list(self.plugin_manager.loaded_plugins.keys())
+            self.db_manager.complete_build(
+                self.build_hash,
+                posts_count=len(self.posts),
+                pages_count=len(self.pages),
+                assets_count=0,  # TODO: Track asset count
+                plugins_loaded=loaded_plugins
+            )
+            
+            print(f"Build completed in {build_duration:.2f} seconds")
+            
+        except Exception as e:
+            # Mark build as failed
+            self.db_manager.fail_build(self.build_hash, str(e))
+            raise

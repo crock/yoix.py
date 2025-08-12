@@ -35,3 +35,7 @@ ENV/
 
 .DS_Store
 .coverage
+
+# yoix build
+demo/public
+.yoix

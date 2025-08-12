@@ -1,0 +1,80 @@
+{{!-- Entity Card Partial Template --}}
+<div class="entity-card" data-entity-id="{{id}}">
+    <div class="entity-header">
+        <h3 class="entity-name">
+            <a href="{{url}}">{{name}}</a>
+        </h3>
+        {{#if rating}}
+        <div class="entity-rating">
+            <div class="stars">
+                {{#repeat rating}}⭐{{/repeat}}
+            </div>
+            <span class="rating-number">({{rating}})</span>
+        </div>
+        {{/if}}
+    </div>
+
+    <div class="entity-meta">
+        <div class="entity-type">{{type}}</div>
+        {{#if location}}
+        <div class="entity-location">
+            📍 {{location}}
+        </div>
+        {{/if}}
+        {{#if price_range}}
+        <div class="entity-price">{{price_range}}</div>
+        {{/if}}
+    </div>
+
+    {{#if categories}}
+    <div class="entity-categories">
+        {{#each categories}}
+        <span class="category-tag">{{this}}</span>
+        {{/each}}
+    </div>
+    {{/if}}
+
+    <div class="entity-content">
+        {{#if content}}
+        <p class="entity-description">{{truncate content 150}}</p>
+        {{/if}}
+    </div>
+
+    {{#if features}}
+    <div class="entity-features">
+        {{#each features}}
+        <span class="feature-tag">{{this}}</span>
+        {{/each}}
+    </div>
+    {{/if}}
+
+    <div class="entity-actions">
+        {{#if website}}
+        <a href="{{website}}" target="_blank" class="btn btn-outline btn-sm">Website</a>
+        {{/if}}
+        {{#if phone}}
+        <a href="tel:{{phone}}" class="btn btn-outline btn-sm">Call</a>
+        {{/if}}
+        {{#if email}}
+        <a href="mailto:{{email}}" class="btn btn-outline btn-sm">Email</a>
+        {{/if}}
+        <a href="{{url}}" class="btn btn-primary btn-sm">View Details</a>
+    </div>
+
+    {{#if hours}}
+    <div class="entity-hours">
+        <details>
+            <summary>Hours</summary>
+            <div class="hours-list">
+                {{#if hours.monday}}<div><strong>Mon:</strong> {{hours.monday}}</div>{{/if}}
+                {{#if hours.tuesday}}<div><strong>Tue:</strong> {{hours.tuesday}}</div>{{/if}}
+                {{#if hours.wednesday}}<div><strong>Wed:</strong> {{hours.wednesday}}</div>{{/if}}
+                {{#if hours.thursday}}<div><strong>Thu:</strong> {{hours.thursday}}</div>{{/if}}
+                {{#if hours.friday}}<div><strong>Fri:</strong> {{hours.friday}}</div>{{/if}}
+                {{#if hours.saturday}}<div><strong>Sat:</strong> {{hours.saturday}}</div>{{/if}}
+                {{#if hours.sunday}}<div><strong>Sun:</strong> {{hours.sunday}}</div>{{/if}}
+            </div>
+        </details>
+    </div>
+    {{/if}}
+</div>

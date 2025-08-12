@@ -1,0 +1,11 @@
+business_name,street_address,city,state,zip_code,phone_number,email_address,website_url,category,description,hours,rating
+Pizza Palace,123 Main Street,Springfield,IL,62701,(217) 555-0123,info@pizzapalace.com,https://pizzapalace.com,Restaurant,Authentic Italian pizza and pasta in downtown Springfield,Mon-Thu 11am-10pm; Fri-Sat 11am-11pm; Sun 12pm-9pm,4.5
+Tech Solutions LLC,456 Business Blvd,Springfield,IL,62702,(217) 555-0456,contact@techsolutions.com,https://techsolutions.com,Technology,IT consulting and software development services,Mon-Fri 9am-5pm,4.8
+Green Thumb Landscaping,789 Garden Lane,Springfield,IL,62703,(217) 555-0789,hello@greenthumb.net,https://greenthumb.net,Landscaping,Professional landscaping and lawn care services,Mon-Sat 7am-6pm,4.2
+Downtown Coffee Co,321 Central Ave,Springfield,IL,62701,(217) 555-0321,orders@downtowncoffee.com,https://downtowncoffee.com,Food & Beverage,Locally roasted coffee and fresh pastries,Daily 6am-8pm,4.6
+Springfield Auto Repair,654 Service Road,Springfield,IL,62704,(217) 555-0654,service@springfieldauto.com,https://springfieldauto.com,Automotive,Complete auto repair and maintenance services,Mon-Fri 7am-6pm; Sat 8am-4pm,4.3
+Healthy Living Yoga,987 Wellness Way,Springfield,IL,62705,(217) 555-0987,info@healthylivingyoga.com,https://healthylivingyoga.com,Health & Fitness,Yoga classes for all levels and wellness workshops,Mon-Sun 6am-9pm,4.7
+First National Bank of Springfield,111 Finance Street,Springfield,IL,62701,(217) 555-0111,info@fnbspringfield.com,https://fnbspringfield.com,Financial Services,Full-service community bank with personal and business banking,Mon-Fri 9am-5pm; Sat 9am-1pm,4.4
+Bella Vista Hair Salon,222 Beauty Blvd,Springfield,IL,62702,(217) 555-0222,appointments@bellavista.com,https://bellavista.com,Beauty & Personal Care,Professional hair styling and beauty treatments,Tue-Sat 9am-7pm,4.9
+Springfield Veterinary Clinic,333 Pet Care Lane,Springfield,IL,62703,(217) 555-0333,care@springfieldvet.com,https://springfieldvet.com,Veterinary,Comprehensive veterinary care for pets and small animals,Mon-Fri 8am-6pm; Sat 9am-3pm,4.6
+Book Nook,444 Reading Road,Springfield,IL,62704,(217) 555-0444,hello@booknookspringfield.com,https://booknookspringfield.com,Retail,Independent bookstore with new and used books,Mon-Sat 10am-8pm; Sun 12pm-6pm,4.5

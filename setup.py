@@ -25,7 +25,8 @@ setup(
         "python-slugify",
         "tomli>=1.1.0",
         "yoix-pi==1.0.0",
-        "pybars3==0.9.7"
+        "pybars3==0.9.7",
+        "requests"
     ],
     extras_require={
         'dev': [
@@ -35,7 +36,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'yoix=yoix.cli:main',
+            'yoix=yoix.cli:yoix',
         ],
     },
 )

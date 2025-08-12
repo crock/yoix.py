@@ -8,6 +8,8 @@ content, and file system while preventing malicious operations.
 import os
 import re
 from pathlib import Path
+import requests
+from urllib.parse import urlparse
 from typing import Dict, List, Any, Optional, Union
 
 
@@ -36,6 +38,9 @@ class PluginApi:
         self._plugin = plugin_instance
         self._plugin_dir = Path(plugin_dir)
         self._cache = {}
+        self._allowed_domains = set()
+        self._request_timeout = 30
+        self._db_manager = site_builder.db_manager
         
         # Security: Define allowed file operations
         self._allowed_read_dirs = {
@@ -69,6 +74,10 @@ class PluginApi:
     def get_all_pages(self) -> List[Dict[str, Any]]:
         """Get all processed pages."""
         return self._site_builder.pages.copy()
+        
+    def get_public_dir(self) -> Path:
+        """Get the public output directory path."""
+        return self._site_builder.public_dir
         
     # Content Manipulation Methods
     def add_custom_field(self, content: Dict[str, Any], key: str, value: Any) -> Dict[str, Any]:
@@ -198,3 +207,343 @@ class PluginApi:
         """Set a value in plugin cache."""
         plugin_key = f"{self._plugin.name}:{key}"
         self._cache[plugin_key] = value
+
+    # HTTP Request Methods (Secure)
+    def add_allowed_domain(self, domain: str) -> None:
+        """Add a domain to the HTTP request whitelist.
+        
+        Args:
+            domain: Domain to allow (e.g., 'api.example.com')
+        """
+        # Normalize domain (remove protocol, path, etc.)
+        parsed = urlparse(f"https://{domain}" if not domain.startswith(('http://', 'https://')) else domain)
+        clean_domain = parsed.netloc.lower()
+        
+        if clean_domain:
+            self._allowed_domains.add(clean_domain)
+            
+    def remove_allowed_domain(self, domain: str) -> None:
+        """Remove a domain from the HTTP request whitelist.
+        
+        Args:
+            domain: Domain to remove
+        """
+        parsed = urlparse(f"https://{domain}" if not domain.startswith(('http://', 'https://')) else domain)
+        clean_domain = parsed.netloc.lower()
+        self._allowed_domains.discard(clean_domain)
+        
+    def get_allowed_domains(self) -> List[str]:
+        """Get list of allowed domains.
+        
+        Returns:
+            List of allowed domain names
+        """
+        return sorted(list(self._allowed_domains))
+        
+    def _validate_url(self, url: str) -> bool:
+        """Validate that a URL is allowed for HTTP requests.
+        
+        Args:
+            url: URL to validate
+            
+        Returns:
+            True if URL is allowed, False otherwise
+        """
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            
+            # Block local/private networks
+            if domain in ('localhost', '127.0.0.1', '0.0.0.0'):
+                return False
+                
+            # Block private IP ranges (simplified check)
+            if domain.startswith(('192.168.', '10.', '172.')):
+                return False
+                
+            # Check against whitelist
+            if self._allowed_domains and domain not in self._allowed_domains:
+                return False
+                
+            # Only allow HTTP/HTTPS
+            if parsed.scheme not in ('http', 'https'):
+                return False
+                
+            return True
+            
+        except Exception:
+            return False
+            
+    def _sanitize_headers(self, headers: Optional[Dict[str, str]]) -> Dict[str, str]:
+        """Sanitize HTTP headers to prevent security issues.
+        
+        Args:
+            headers: Raw headers dictionary
+            
+        Returns:
+            Sanitized headers dictionary
+        """
+        if not headers:
+            return {}
+            
+        # Default safe headers
+        safe_headers = {
+            'User-Agent': f'Yoix-Plugin/{self._plugin.name}',
+            'Accept': 'application/json, text/plain, */*',
+            'Content-Type': 'application/json'
+        }
+        
+        # Allowed header keys (whitelist)
+        allowed_headers = {
+            'accept', 'accept-encoding', 'accept-language', 'authorization',
+            'cache-control', 'content-type', 'user-agent', 'x-api-key',
+            'x-auth-token', 'x-requested-with'
+        }
+        
+        # Add user headers if they're safe
+        for key, value in headers.items():
+            if key.lower() in allowed_headers and isinstance(value, str):
+                # Prevent header injection
+                clean_value = value.replace('\n', '').replace('\r', '')
+                safe_headers[key] = clean_value
+                
+        return safe_headers
+        
+    def http_get(self, url: str, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Make a secure HTTP GET request.
+        
+        Args:
+            url: URL to request
+            headers: Optional HTTP headers
+            params: Optional query parameters
+            
+        Returns:
+            Dictionary containing response data
+            
+        Raises:
+            SecurityError: If URL is not allowed
+            PluginApiError: If request fails
+        """
+        if not self._validate_url(url):
+            raise SecurityError(f"URL not allowed: {url}")
+            
+        safe_headers = self._sanitize_headers(headers)
+        
+        try:
+            response = requests.get(
+                url,
+                headers=safe_headers,
+                params=params,
+                timeout=self._request_timeout,
+                allow_redirects=True,
+                verify=True  # Verify SSL certificates
+            )
+            
+            return {
+                'status_code': response.status_code,
+                'headers': dict(response.headers),
+                'text': response.text,
+                'json': response.json() if response.headers.get('content-type', '').startswith('application/json') else None,
+                'ok': response.ok,
+                'url': response.url
+            }
+            
+        except requests.exceptions.Timeout:
+            raise PluginApiError(f"Request timeout after {self._request_timeout} seconds")
+        except requests.exceptions.SSLError as e:
+            raise PluginApiError(f"SSL verification failed: {e}")
+        except requests.exceptions.ConnectionError as e:
+            raise PluginApiError(f"Connection error: {e}")
+        except requests.exceptions.RequestException as e:
+            raise PluginApiError(f"HTTP request failed: {e}")
+        except Exception as e:
+            raise PluginApiError(f"Unexpected error during HTTP request: {e}")
+            
+    def http_post(self, url: str, payload: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, json_data: bool = True) -> Dict[str, Any]:
+        """Make a secure HTTP POST request.
+        
+        Args:
+            url: URL to request
+            payload: Data to send in request body
+            headers: Optional HTTP headers
+            json_data: Whether to send payload as JSON (default: True)
+            
+        Returns:
+            Dictionary containing response data
+            
+        Raises:
+            SecurityError: If URL is not allowed
+            PluginApiError: If request fails
+        """
+        if not self._validate_url(url):
+            raise SecurityError(f"URL not allowed: {url}")
+            
+        safe_headers = self._sanitize_headers(headers)
+        
+        try:
+            if json_data and payload:
+                response = requests.post(
+                    url,
+                    json=payload,
+                    headers=safe_headers,
+                    timeout=self._request_timeout,
+                    allow_redirects=True,
+                    verify=True
+                )
+            else:
+                response = requests.post(
+                    url,
+                    data=payload,
+                    headers=safe_headers,
+                    timeout=self._request_timeout,
+                    allow_redirects=True,
+                    verify=True
+                )
+                
+            return {
+                'status_code': response.status_code,
+                'headers': dict(response.headers),
+                'text': response.text,
+                'json': response.json() if response.headers.get('content-type', '').startswith('application/json') else None,
+                'ok': response.ok,
+                'url': response.url
+            }
+            
+        except requests.exceptions.Timeout:
+            raise PluginApiError(f"Request timeout after {self._request_timeout} seconds")
+        except requests.exceptions.SSLError as e:
+            raise PluginApiError(f"SSL verification failed: {e}")
+        except requests.exceptions.ConnectionError as e:
+            raise PluginApiError(f"Connection error: {e}")
+        except requests.exceptions.RequestException as e:
+            raise PluginApiError(f"HTTP request failed: {e}")
+        except Exception as e:
+            raise PluginApiError(f"Unexpected error during HTTP request: {e}")
+            
+    def http_put(self, url: str, payload: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None, json_data: bool = True) -> Dict[str, Any]:
+        """Make a secure HTTP PUT request.
+        
+        Args:
+            url: URL to request
+            payload: Data to send in request body
+            headers: Optional HTTP headers
+            json_data: Whether to send payload as JSON (default: True)
+            
+        Returns:
+            Dictionary containing response data
+        """
+        if not self._validate_url(url):
+            raise SecurityError(f"URL not allowed: {url}")
+            
+        safe_headers = self._sanitize_headers(headers)
+        
+        try:
+            if json_data and payload:
+                response = requests.put(
+                    url,
+                    json=payload,
+                    headers=safe_headers,
+                    timeout=self._request_timeout,
+                    verify=True
+                )
+            else:
+                response = requests.put(
+                    url,
+                    data=payload,
+                    headers=safe_headers,
+                    timeout=self._request_timeout,
+                    verify=True
+                )
+                
+            return {
+                'status_code': response.status_code,
+                'headers': dict(response.headers),
+                'text': response.text,
+                'json': response.json() if response.headers.get('content-type', '').startswith('application/json') else None,
+                'ok': response.ok,
+                'url': response.url
+            }
+            
+        except requests.exceptions.RequestException as e:
+            raise PluginApiError(f"HTTP PUT request failed: {e}")
+        except Exception as e:
+            raise PluginApiError(f"Unexpected error during HTTP PUT request: {e}")
+            
+    def set_request_timeout(self, timeout: int) -> None:
+        """Set the timeout for HTTP requests.
+        
+        Args:
+            timeout: Timeout in seconds (max: 120)
+        """
+        self._request_timeout = min(max(timeout, 1), 120)  # Clamp between 1-120 seconds
+        
+    # Database Access Methods (Secure)
+    def db_set(self, key: str, value: Any, expires_in_seconds: Optional[int] = None) -> None:
+        """Store data in plugin's database storage.
+        
+        Args:
+            key: Storage key (namespaced to plugin)
+            value: Value to store
+            expires_in_seconds: Optional expiration time
+        """
+        self._db_manager.plugin_set_data(self._plugin.name, key, value, expires_in_seconds)
+        
+    def db_get(self, key: str) -> Any:
+        """Get data from plugin's database storage.
+        
+        Args:
+            key: Storage key
+            
+        Returns:
+            Stored value or None if not found/expired
+        """
+        return self._db_manager.plugin_get_data(self._plugin.name, key)
+        
+    def db_delete(self, key: str = None) -> None:
+        """Delete data from plugin's database storage.
+        
+        Args:
+            key: Optional specific key to delete. If None, deletes all plugin data.
+        """
+        self._db_manager.plugin_delete_data(self._plugin.name, key)
+        
+    def cache_to_db(self, key: str, value: Any, expires_in_seconds: Optional[int] = None) -> None:
+        """Store value in persistent database cache (survives restarts).
+        
+        Args:
+            key: Cache key (will be namespaced to plugin)
+            value: Value to cache
+            expires_in_seconds: Optional expiration time
+        """
+        cache_key = f"plugin:{self._plugin.name}:{key}"
+        self._db_manager.cache_set(cache_key, value, expires_in_seconds, "plugin")
+        
+    def cache_from_db(self, key: str) -> Any:
+        """Get value from persistent database cache.
+        
+        Args:
+            key: Cache key
+            
+        Returns:
+            Cached value or None if not found/expired
+        """
+        cache_key = f"plugin:{self._plugin.name}:{key}"
+        return self._db_manager.cache_get(cache_key)
+        
+    def record_metric(self, metric_name: str, value: float, unit: str = None) -> None:
+        """Record a custom metric for this plugin.
+        
+        Args:
+            metric_name: Name of the metric
+            value: Metric value
+            unit: Optional unit (e.g., 'seconds', 'count', 'bytes')
+        """
+        if self._site_builder.build_hash:
+            full_metric_name = f"plugin:{self._plugin.name}:{metric_name}"
+            self._db_manager.record_metric(
+                self._site_builder.build_hash,
+                full_metric_name,
+                value,
+                unit,
+                "plugin"
+            )

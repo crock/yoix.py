@@ -44,13 +44,27 @@ class TemplateManager:
         """Get a compiled template, using cache if available.
         
         Args:
-            template_name: Name of the template (without .hbs extension)
+            template_name: Name of the template (without extension)
             
         Returns:
             Compiled template
         """
         if template_name not in self._template_cache:
-            template_path = self.templates_dir / f"{template_name}.hbs"
+            # Try .hbs first, then .html as fallback
+            hbs_path = self.templates_dir / f"{template_name}.hbs"
+            html_path = self.templates_dir / f"{template_name}.html"
+            
+            if hbs_path.exists():
+                template_path = hbs_path
+            elif html_path.exists():
+                template_path = html_path
+            else:
+                # If template not found, try default fallback
+                if template_name != 'default':
+                    return self._get_template('default')
+                else:
+                    raise FileNotFoundError(f"Template not found: {template_name} (tried .hbs and .html)")
+                    
             self._template_cache[template_name] = self._load_template(template_path)
         return self._template_cache[template_name]
         
@@ -58,7 +72,8 @@ class TemplateManager:
         """Render a template with the given context.
         
         Args:
-            template_name: Name of the template to render (without .html extension)
+            template_name: Name of the template to render (without extension)
+                          Tries .hbs first, then .html, then falls back to 'default'
             context: Dictionary of variables to pass to the template
             
         Returns:

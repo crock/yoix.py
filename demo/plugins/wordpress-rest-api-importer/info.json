@@ -1,0 +1,6 @@
+{
+	"name": "WordPress REST API Importer",
+	"developer": "Yoix Official Plugin",
+	"version": "0.1.0",
+	"description": "Imports structured data from self-hosted WordPress installations for use in Yoix site builds."
+}
